@@ -36,9 +36,13 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
       originalError.apply(console, args);
     };
 
-    setMounted(true);
+    // Set mounted after a short delay to ensure client-side only
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, 100);
 
     return () => {
+      clearTimeout(timer);
       console.error = originalError;
     };
   }, []);

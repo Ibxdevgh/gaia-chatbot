@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialization of OpenAI client to avoid build-time errors
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY!,
+  });
+}
 
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 
@@ -322,6 +325,7 @@ export async function POST(request: NextRequest) {
 
     realTimeContext += '=== END OF REAL-TIME DATA ===';
 
+    const openai = getOpenAIClient();
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [

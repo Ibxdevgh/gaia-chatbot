@@ -153,7 +153,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!connected) {
-      router.push('/');
+      router.replace('/');
     }
   }, [connected, router]);
 
@@ -239,7 +239,16 @@ export default function ChatPage() {
     }
   };
 
-  if (!connected) return null;
+  if (!connected) {
+    return (
+      <div className="min-h-screen bg-gaia-space flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-gaia-purple border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gaia-paragraph">Redirecting to connect wallet...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gaia-space flex flex-col relative">
