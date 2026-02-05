@@ -80,7 +80,7 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAlertModal, setShowAlertModal] = useState(false);
-  const [newAlert, setNewAlert] = useState({ tokenSymbol: 'SOL', targetPrice: '', condition: 'above' as const });
+  const [newAlert, setNewAlert] = useState<{ tokenSymbol: string; targetPrice: string; condition: 'above' | 'below' }>({ tokenSymbol: 'SOL', targetPrice: '', condition: 'above' });
 
   useEffect(() => {
     if (!connected) router.push('/');
