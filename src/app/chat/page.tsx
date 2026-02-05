@@ -210,7 +210,14 @@ export default function ChatPage() {
 
       const data = await response.json();
 
-      if (!response.ok) throw new Error(data.error || 'Failed to get response');
+      if (!response.ok) {
+        // Handle rate limit errors with better messaging
+        if (response.status === 429) {
+          const retryAfter = data.retryAfter || 60;
+          throw new Error(`Rate limit exceeded. Please wait ${retryAfter} seconds before trying again. The system will automatically retry on the next request.`);
+        }
+        throw new Error(data.error || 'Failed to get response');
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -220,10 +227,17 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error: any) {
+      let errorContent = `I apologize, but I encountered an error: ${error.message}.`;
+      
+      // Add helpful message for rate limits
+      if (error.message.includes('Rate limit')) {
+        errorContent += '\n\n💡 Tip: If you continue to see this error, you may have reached your OpenAI API usage limit. Please check your OpenAI account or wait a few minutes before trying again.';
+      }
+      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `I apologize, but I encountered an error: ${error.message}. Please try again.`,
+        content: errorContent,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);

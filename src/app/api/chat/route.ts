@@ -4,8 +4,12 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Lazy initialization of OpenAI client to avoid build-time errors
 function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenAI API key is not configured');
+  }
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY!,
+    apiKey: apiKey,
   });
 }
 
@@ -243,9 +247,15 @@ export async function POST(request: NextRequest) {
     const { messages, walletAddress } = await request.json();
     const lastMessage = messages[messages.length - 1]?.content || '';
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Check for API key with better error messaging
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey || apiKey.trim() === '') {
+      console.error('OPENAI_API_KEY is missing or empty');
       return NextResponse.json(
-        { error: 'OpenAI API key not configured' },
+        { 
+          error: 'OpenAI API key not configured. Please add OPENAI_API_KEY to your Vercel environment variables.',
+          details: 'The API key is required for the chat functionality to work.'
+        },
         { status: 500 }
       );
     }
@@ -325,23 +335,46 @@ export async function POST(request: NextRequest) {
 
     realTimeContext += '=== END OF REAL-TIME DATA ===';
 
+    // Retry logic with exponential backoff for rate limits
     const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT + realTimeContext },
-        ...messages.map((msg: { role: string; content: string }) => ({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content,
-        })),
-      ],
-      max_tokens: 800,
-      temperature: 0.7,
-    });
+    const maxRetries = 3;
+    let lastError: any = null;
 
-    const responseMessage = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT + realTimeContext },
+            ...messages.map((msg: { role: string; content: string }) => ({
+              role: msg.role as 'user' | 'assistant',
+              content: msg.content,
+            })),
+          ],
+          max_tokens: 600, // Reduced to help with rate limits
+          temperature: 0.7,
+        });
 
-    return NextResponse.json({ message: responseMessage });
+        const responseMessage = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+        return NextResponse.json({ message: responseMessage });
+      } catch (error: any) {
+        lastError = error;
+        
+        // If it's a rate limit error and we have retries left, wait and retry
+        if (error?.status === 429 && attempt < maxRetries - 1) {
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+          console.log(`Rate limit hit, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+        
+        // If it's not a rate limit or we're out of retries, break and handle error
+        throw error;
+      }
+    }
+
+    // If we get here, all retries failed
+    throw lastError;
   } catch (error: any) {
     console.error('OpenAI API error:', error);
 
@@ -350,7 +383,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (error?.status === 429) {
-      return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
+      const retryAfter = error?.headers?.['retry-after'] || error?.response?.headers?.['retry-after'];
+      const message = retryAfter 
+        ? `Rate limit exceeded. Please try again after ${retryAfter} seconds.`
+        : 'Rate limit exceeded. Please wait a moment and try again.';
+      return NextResponse.json({ 
+        error: message,
+        retryAfter: retryAfter ? parseInt(retryAfter) : 60
+      }, { status: 429 });
     }
 
     return NextResponse.json({ error: 'Failed to get response from AI' }, { status: 500 });
